@@ -11,6 +11,9 @@ const FelsonWealthApp = () => {
   const [mfaCode, setMfaCode] = useState('');
   const [showMFA, setShowMFA] = useState(false);
   const [loginError, setLoginError] = useState('');
+  const [depositAmount, setDepositAmount] = useState('');
+  const [loanAmount, setLoanAmount] = useState('');
+  const [loanTerm, setLoanTerm] = useState(6);
 
   // Sibling data
   const [siblings, setSiblings] = useState([
@@ -368,7 +371,7 @@ const FelsonWealthApp = () => {
           <div style={styles.sectionCard}>
             <h3 style={styles.sectionTitle}>📅 Upcoming Birthdays</h3>
             <div style={styles.birthdayList}>
-              {siblings
+              {[...siblings]
                 .sort((a, b) => {
                   const getMonth = (bday) => parseInt(bday.split('-')[1]);
                   return getMonth(a.birthday) - getMonth(b.birthday);
@@ -453,9 +456,6 @@ const FelsonWealthApp = () => {
     const sibling = siblings.find((s) => s.id === currentUser.id);
     const tier = tiers[sibling.tier];
     const loanEligible = sibling.totalSaved >= 100000;
-    const [depositAmount, setDepositAmount] = useState('');
-    const [loanAmount, setLoanAmount] = useState('');
-    const [loanTerm, setLoanTerm] = useState(6);
 
     return (
       <div style={styles.container}>
