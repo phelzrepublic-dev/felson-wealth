@@ -260,9 +260,8 @@ const FelsonWealthApp = () => {
       <div style={styles.container}>
         <div style={styles.loginCard}>
           <div style={styles.logo}>
-            <div style={styles.logoText}>FELSON</div>
-            <div style={styles.logoSubtext}>WEALTH MANAGEMENT</div>
-          </div>
+  <img src={require('./felson-wealth-logo.png')} alt="Felson Wealth Management" style={{maxWidth: '100%', height: 'auto'}} />
+</div>
 
           {showMFA ? (
             <form onSubmit={handleMFASubmit} style={styles.form}>
@@ -420,6 +419,32 @@ const FelsonWealthApp = () => {
                   Role: {sibling.roleAssigned}
                 </div>
               )}
+              
+{userRole === 'admin' && (
+  <div style={styles.adminDepositForm}>
+    <h4 style={styles.adminDepositTitle}>Record Deposit</h4>
+    <div style={{display: 'flex', gap: '8px'}}>
+      <input
+        type="number"
+        placeholder={`Min: ₦${tier.minSave}`}
+        id={`deposit-${sibling.id}`}
+        style={styles.input}
+      />
+      <button
+        onClick={() => {
+          const amount = parseInt(document.getElementById(`deposit-${sibling.id}`).value);
+          if (amount >= tier.minSave) {
+            handleAddDeposit(sibling.id, amount);
+            document.getElementById(`deposit-${sibling.id}`).value = '';
+          }
+        }}
+        style={styles.adminDepositButton}
+      >
+        Record
+      </button>
+    </div>
+  </div>
+)}
 
               {/* Pending Loan Approvals */}
               {sibling.loans.some((l) => l.status === 'pending') && (
@@ -1139,6 +1164,28 @@ const styles = {
     fontSize: '13px',
     color: unlocked ? '#2d6a3a' : '#999',
   }),
+    adminDepositForm: {
+    marginTop: '15px',
+    padding: '12px',
+    background: '#f0f4ff',
+    borderRadius: '6px',
+  },
+  adminDepositTitle: {
+    fontSize: '12px',
+    fontWeight: '600',
+    color: '#0066cc',
+    margin: '0 0 10px 0',
+  },
+  adminDepositButton: {
+    padding: '8px 16px',
+    background: '#0066cc',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '13px',
+    fontWeight: '600',
+    cursor: 'pointer',
+  },
 };
 
 export default FelsonWealthApp;
