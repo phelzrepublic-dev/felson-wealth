@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import logoImage from './felson-wealth-logo-removebg-preview.png';
 
 // Felson Wealth Management Portal - Full Stack
 const FelsonWealthApp = () => {
@@ -10,7 +11,17 @@ const FelsonWealthApp = () => {
   const [password, setPassword] = useState('');
   const [mfaCode, setMfaCode] = useState('');
   const [showMFA, setShowMFA] = useState(false);
+  const [showSignup, setShowSignup] = useState(false);
   const [loginError, setLoginError] = useState('');
+
+  // Signup form state
+  const [signupName, setSignupName] = useState('');
+  const [signupEmail, setSignupEmail] = useState('');
+  const [signupPassword, setSignupPassword] = useState('');
+  const [signupAge, setSignupAge] = useState('');
+  const [signupError, setSignupError] = useState('');
+
+  // Form state for sibling portal
   const [depositAmount, setDepositAmount] = useState('');
   const [loanAmount, setLoanAmount] = useState('');
   const [loanTerm, setLoanTerm] = useState(6);
@@ -93,14 +104,6 @@ const FelsonWealthApp = () => {
     },
   ]);
 
-  const adminUser = {
-    id: 'admin',
-    name: 'Felson Prezi',
-    email: 'Felsonprezi01@gmail.com',
-    password: 'Felson@2026!',
-    birthday: '1994-06-20',
-  };
-
   // ============ TIER CONFIG ============
   const tiers = {
     1: { name: 'Tier 1', ages: '12-18', minSave: 2500, matchPercent: 35 },
@@ -109,9 +112,10 @@ const FelsonWealthApp = () => {
   };
 
   const getTierForAge = (age) => {
-    if (age >= 12 && age <= 18) return 1;
-    if (age >= 18 && age <= 25) return 2;
-    if (age >= 25) return 3;
+    const ageNum = parseInt(age);
+    if (ageNum >= 12 && ageNum <= 18) return 1;
+    if (ageNum >= 18 && ageNum <= 25) return 2;
+    if (ageNum >= 25) return 3;
     return 1;
   };
 
@@ -142,9 +146,72 @@ const FelsonWealthApp = () => {
     setLoginError('Invalid email or password');
   };
 
+  const handleSignup = (e) => {
+    e.preventDefault();
+    setSignupError('');
+
+    // Validation
+    if (!signupName || !signupEmail || !signupPassword || !signupAge) {
+      setSignupError('All fields are required');
+      return;
+    }
+
+    // Check email format
+    if (!signupEmail.endsWith('@felsonwealth.com')) {
+      setSignupError('Email must be in format: firstname@felsonwealth.com');
+      return;
+    }
+
+    if (signupPassword.length < 6) {
+      setSignupError('Password must be at least 6 characters');
+      return;
+    }
+
+    // Check if email already exists
+    if (siblings.find(s => s.email === signupEmail)) {
+      setSignupError('Email already registered');
+      return;
+    }
+
+    const age = parseInt(signupAge);
+    if (age < 12 || age > 100) {
+      setSignupError('Age must be between 12 and 100');
+      return;
+    }
+
+    // Create new sibling account
+    const newSibling = {
+      id: Math.max(...siblings.map(s => s.id), 0) + 1,
+      name: signupName,
+      age: age,
+      email: signupEmail,
+      password: signupPassword,
+      birthday: new Date().toISOString().split('T')[0], // Use today's date, will be updated by admin
+      tier: getTierForAge(age),
+      totalSaved: 0,
+      deposits: [],
+      loans: [],
+      goal: 'Savings',
+      roleAssigned: null,
+    };
+
+    setSiblings([...siblings, newSibling]);
+
+    // Auto-login new user
+    setCurrentUser(newSibling);
+    setUserRole('sibling');
+    setIsLoggedIn(true);
+
+    // Clear form
+    setSignupName('');
+    setSignupEmail('');
+    setSignupPassword('');
+    setSignupAge('');
+    setShowSignup(false);
+  };
+
   const handleMFASubmit = (e) => {
     e.preventDefault();
-    // Simple MFA check (in real app, would use TOTP)
     if (mfaCode === '123456') {
       setCurrentUser(adminUser);
       setUserRole('admin');
@@ -165,6 +232,15 @@ const FelsonWealthApp = () => {
     setEmail('');
     setPassword('');
     setLoginError('');
+    setShowSignup(false);
+  };
+
+  const adminUser = {
+    id: 'admin',
+    name: 'Felson Prezi',
+    email: 'Felsonprezi01@gmail.com',
+    password: 'Felson@2026!',
+    birthday: '1994-06-20',
   };
 
   // ============ DEPOSIT HANDLING ============
@@ -260,8 +336,8 @@ const FelsonWealthApp = () => {
       <div style={styles.container}>
         <div style={styles.loginCard}>
           <div style={styles.logo}>
-  <img src={require('./felson-wealth-logo.png')} alt="Felson Wealth Management" style={{maxWidth: '100%', height: 'auto'}} />
-</div>
+            <img src={logoImage} alt="Felson Wealth Management" style={{maxWidth: '300px', height: 'auto', display: 'block', margin: '0 auto'}} />
+          </div>
 
           {showMFA ? (
             <form onSubmit={handleMFASubmit} style={styles.form}>
@@ -286,6 +362,59 @@ const FelsonWealthApp = () => {
                 onClick={() => {
                   setShowMFA(false);
                   setMFACode('');
+                  setLoginError('');
+                }}
+                style={styles.secondaryButton}
+              >
+                Back to Login
+              </button>
+            </form>
+          ) : showSignup ? (
+            <form onSubmit={handleSignup} style={styles.form}>
+              <h2 style={styles.formTitle}>Create Account</h2>
+              <input
+                type="text"
+                placeholder="Full Name"
+                value={signupName}
+                onChange={(e) => setSignupName(e.target.value)}
+                style={styles.input}
+              />
+              <input
+                type="email"
+                placeholder="Email"
+                value={signupEmail}
+                onChange={(e) => setSignupEmail(e.target.value)}
+                style={styles.input}
+              />
+              <input
+                type="password"
+                placeholder="Password (min 6 characters)"
+                value={signupPassword}
+                onChange={(e) => setSignupPassword(e.target.value)}
+                style={styles.input}
+              />
+              <input
+                type="number"
+                placeholder="Age"
+                value={signupAge}
+                onChange={(e) => setSignupAge(e.target.value)}
+                min="12"
+                max="100"
+                style={styles.input}
+              />
+              {signupError && <div style={styles.error}>{signupError}</div>}
+              <button type="submit" style={styles.primaryButton}>
+                Create Account
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSignup(false);
+                  setSignupName('');
+                  setSignupEmail('');
+                  setSignupPassword('');
+                  setSignupAge('');
+                  setSignupError('');
                 }}
                 style={styles.secondaryButton}
               >
@@ -313,10 +442,15 @@ const FelsonWealthApp = () => {
               <button type="submit" style={styles.primaryButton}>
                 Login
               </button>
-              <div style={styles.demoAccounts}>
-                <p style={styles.demoTitle}>Demo Accounts:</p>
-                <p>Admin: Felsonprezi01@gmail.com / Felson@2026!</p>
-                <p>Sibling: tombra@felsonwealth.com / tombra123</p>
+              <div style={styles.signupPrompt}>
+                <p style={styles.signupPromptText}>Don't have an account?</p>
+                <button
+                  type="button"
+                  onClick={() => setShowSignup(true)}
+                  style={styles.signupLink}
+                >
+                  Sign up here
+                </button>
               </div>
             </form>
           )}
@@ -370,7 +504,7 @@ const FelsonWealthApp = () => {
           <div style={styles.sectionCard}>
             <h3 style={styles.sectionTitle}>📅 Upcoming Birthdays</h3>
             <div style={styles.birthdayList}>
-              {[...siblings]
+              {siblings
                 .sort((a, b) => {
                   const getMonth = (bday) => parseInt(bday.split('-')[1]);
                   return getMonth(a.birthday) - getMonth(b.birthday);
@@ -390,87 +524,89 @@ const FelsonWealthApp = () => {
           </div>
 
           {/* Siblings Overview */}
-          {siblings.map((sibling) => (
-            <div key={sibling.id} style={styles.siblingCard}>
-              <div style={styles.siblingHeader}>
-                <h3 style={styles.siblingName}>{sibling.name}</h3>
-                <div style={styles.siblingMeta}>
-                  Age {sibling.age} • {tiers[sibling.tier].name}
+          {siblings.map((sibling) => {
+            const tier = tiers[sibling.tier];
+            return (
+              <div key={sibling.id} style={styles.siblingCard}>
+                <div style={styles.siblingHeader}>
+                  <h3 style={styles.siblingName}>{sibling.name}</h3>
+                  <div style={styles.siblingMeta}>
+                    Age {sibling.age} • {tier.name}
+                  </div>
                 </div>
-              </div>
 
-              <div style={styles.siblingStats}>
-                <div style={styles.statItem}>
-                  <div style={styles.statLabel}>Balance</div>
-                  <div style={styles.statValue}>₦{sibling.totalSaved.toLocaleString()}</div>
+                <div style={styles.siblingStats}>
+                  <div style={styles.statItem}>
+                    <div style={styles.statLabel}>Balance</div>
+                    <div style={styles.statValue}>₦{sibling.totalSaved.toLocaleString()}</div>
+                  </div>
+                  <div style={styles.statItem}>
+                    <div style={styles.statLabel}>Deposits</div>
+                    <div style={styles.statValue}>{sibling.deposits.length}</div>
+                  </div>
+                  <div style={styles.statItem}>
+                    <div style={styles.statLabel}>Loans</div>
+                    <div style={styles.statValue}>{sibling.loans.length}</div>
+                  </div>
                 </div>
-                <div style={styles.statItem}>
-                  <div style={styles.statLabel}>Deposits</div>
-                  <div style={styles.statValue}>{sibling.deposits.length}</div>
-                </div>
-                <div style={styles.statItem}>
-                  <div style={styles.statLabel}>Loans</div>
-                  <div style={styles.statValue}>{sibling.loans.length}</div>
-                </div>
-              </div>
 
-              {sibling.roleAssigned && (
-                <div style={styles.roleAssignedBadge}>
-                  Role: {sibling.roleAssigned}
-                </div>
-              )}
-              
-{userRole === 'admin' && (
-  <div style={styles.adminDepositForm}>
-    <h4 style={styles.adminDepositTitle}>Record Deposit</h4>
-    <div style={{display: 'flex', gap: '8px'}}>
-      <input
-        type="number"
-        placeholder={`Min: ₦${tier.minSave}`}
-        id={`deposit-${sibling.id}`}
-        style={styles.input}
-      />
-      <button
-        onClick={() => {
-          const amount = parseInt(document.getElementById(`deposit-${sibling.id}`).value);
-          if (amount >= tier.minSave) {
-            handleAddDeposit(sibling.id, amount);
-            document.getElementById(`deposit-${sibling.id}`).value = '';
-          }
-        }}
-        style={styles.adminDepositButton}
-      >
-        Record
-      </button>
-    </div>
-  </div>
-)}
+                {sibling.roleAssigned && (
+                  <div style={styles.roleAssignedBadge}>
+                    Role: {sibling.roleAssigned}
+                  </div>
+                )}
 
-              {/* Pending Loan Approvals */}
-              {sibling.loans.some((l) => l.status === 'pending') && (
-                <div style={styles.loanApprovalSection}>
-                  <h4 style={styles.loanApprovalTitle}>Pending Loan Approvals</h4>
-                  {sibling.loans
-                    .filter((l) => l.status === 'pending')
-                    .map((loan) => (
-                      <div key={loan.id} style={styles.loanApprovalItem}>
-                        <div>
-                          <div>Amount: ₦{loan.amount.toLocaleString()}</div>
-                          <div>Term: {loan.term} months</div>
-                          <div>Interest: {loan.interestRate}%</div>
+                {/* Admin Deposit Form */}
+                <div style={styles.adminDepositForm}>
+                  <h4 style={styles.adminDepositTitle}>Record Deposit</h4>
+                  <div style={{display: 'flex', gap: '8px'}}>
+                    <input
+                      type="number"
+                      placeholder={`Min: ₦${tier.minSave}`}
+                      id={`deposit-${sibling.id}`}
+                      style={styles.input}
+                    />
+                    <button
+                      onClick={() => {
+                        const amount = parseInt(document.getElementById(`deposit-${sibling.id}`).value);
+                        if (amount >= tier.minSave) {
+                          handleAddDeposit(sibling.id, amount);
+                          document.getElementById(`deposit-${sibling.id}`).value = '';
+                        }
+                      }}
+                      style={styles.adminDepositButton}
+                    >
+                      Record
+                    </button>
+                  </div>
+                </div>
+
+                {/* Pending Loan Approvals */}
+                {sibling.loans.some((l) => l.status === 'pending') && (
+                  <div style={styles.loanApprovalSection}>
+                    <h4 style={styles.loanApprovalTitle}>Pending Loan Approvals</h4>
+                    {sibling.loans
+                      .filter((l) => l.status === 'pending')
+                      .map((loan) => (
+                        <div key={loan.id} style={styles.loanApprovalItem}>
+                          <div>
+                            <div>Amount: ₦{loan.amount.toLocaleString()}</div>
+                            <div>Term: {loan.term} months</div>
+                            <div>Interest: {loan.interestRate}%</div>
+                          </div>
+                          <button
+                            onClick={() => handleApproveLoan(sibling.id, loan.id)}
+                            style={styles.approveButton}
+                          >
+                            Approve
+                          </button>
                         </div>
-                        <button
-                          onClick={() => handleApproveLoan(sibling.id, loan.id)}
-                          style={styles.approveButton}
-                        >
-                          Approve
-                        </button>
-                      </div>
-                    ))}
-                </div>
-              )}
-            </div>
-          ))}
+                      ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
     );
@@ -704,8 +840,8 @@ const styles = {
     fontFamily: 'system-ui, -apple-system, sans-serif',
   },
   loginCard: {
-    maxWidth: '400px',
-    margin: '60px auto',
+    maxWidth: '450px',
+    margin: '40px auto',
     background: 'white',
     borderRadius: '12px',
     padding: '40px',
@@ -714,16 +850,6 @@ const styles = {
   logo: {
     textAlign: 'center',
     marginBottom: '30px',
-  },
-  logoText: {
-    fontSize: '28px',
-    fontWeight: 'bold',
-    color: '#001a4d',
-  },
-  logoSubtext: {
-    fontSize: '14px',
-    color: '#0066cc',
-    letterSpacing: '1px',
   },
   form: {
     display: 'flex',
@@ -771,22 +897,28 @@ const styles = {
     background: '#ffebee',
     borderRadius: '4px',
   },
-  demoAccounts: {
-    background: '#f0f4ff',
-    padding: '12px',
-    borderRadius: '6px',
-    fontSize: '12px',
-    color: '#333',
-    marginTop: '15px',
-  },
-  demoTitle: {
-    fontWeight: '600',
-    marginBottom: '6px',
-  },
   mfaInfo: {
     fontSize: '13px',
     color: '#666',
     marginBottom: '15px',
+  },
+  signupPrompt: {
+    textAlign: 'center',
+    marginTop: '10px',
+  },
+  signupPromptText: {
+    fontSize: '13px',
+    color: '#666',
+    margin: '0 0 8px 0',
+  },
+  signupLink: {
+    background: 'none',
+    border: 'none',
+    color: '#0066cc',
+    fontSize: '13px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    textDecoration: 'underline',
   },
   header: {
     background: 'white',
@@ -944,6 +1076,28 @@ const styles = {
     fontSize: '12px',
     fontWeight: '600',
     marginBottom: '15px',
+  },
+  adminDepositForm: {
+    marginTop: '15px',
+    padding: '12px',
+    background: '#f0f4ff',
+    borderRadius: '6px',
+  },
+  adminDepositTitle: {
+    fontSize: '12px',
+    fontWeight: '600',
+    color: '#0066cc',
+    margin: '0 0 10px 0',
+  },
+  adminDepositButton: {
+    padding: '8px 16px',
+    background: '#0066cc',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '13px',
+    fontWeight: '600',
+    cursor: 'pointer',
   },
   loanApprovalSection: {
     marginTop: '15px',
@@ -1164,28 +1318,6 @@ const styles = {
     fontSize: '13px',
     color: unlocked ? '#2d6a3a' : '#999',
   }),
-    adminDepositForm: {
-    marginTop: '15px',
-    padding: '12px',
-    background: '#f0f4ff',
-    borderRadius: '6px',
-  },
-  adminDepositTitle: {
-    fontSize: '12px',
-    fontWeight: '600',
-    color: '#0066cc',
-    margin: '0 0 10px 0',
-  },
-  adminDepositButton: {
-    padding: '8px 16px',
-    background: '#0066cc',
-    color: 'white',
-    border: 'none',
-    borderRadius: '4px',
-    fontSize: '13px',
-    fontWeight: '600',
-    cursor: 'pointer',
-  },
 };
 
 export default FelsonWealthApp;
