@@ -19,12 +19,26 @@ const FelsonWealthApp = () => {
   const [signupEmail, setSignupEmail] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
   const [signupAge, setSignupAge] = useState('');
+  const [signupBirthdayDay, setSignupBirthdayDay] = useState('');
+  const [signupBirthdayMonth, setSignupBirthdayMonth] = useState('');
+  const [signupBirthdayYear, setSignupBirthdayYear] = useState('');
   const [signupError, setSignupError] = useState('');
 
   // Form state for sibling portal
   const [depositAmount, setDepositAmount] = useState('');
   const [loanAmount, setLoanAmount] = useState('');
   const [loanTerm, setLoanTerm] = useState(6);
+
+  // Admin edit state
+  const [editingSiblingId, setEditingSiblingId] = useState(null);
+  const [editName, setEditName] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editAge, setEditAge] = useState('');
+  const [editBirthdayDay, setEditBirthdayDay] = useState('');
+  const [editBirthdayMonth, setEditBirthdayMonth] = useState('');
+  const [editBirthdayYear, setEditBirthdayYear] = useState('');
+  const [editPassword, setEditPassword] = useState('');
+  const [editError, setEditError] = useState('');
 
   // Sibling data
   const [siblings, setSiblings] = useState([
@@ -151,7 +165,7 @@ const FelsonWealthApp = () => {
     setSignupError('');
 
     // Validation
-    if (!signupName || !signupEmail || !signupPassword || !signupAge) {
+    if (!signupName || !signupEmail || !signupPassword || !signupAge || !signupBirthdayDay || !signupBirthdayMonth || !signupBirthdayYear) {
       setSignupError('All fields are required');
       return;
     }
@@ -179,6 +193,19 @@ const FelsonWealthApp = () => {
       return;
     }
 
+    // Validate birthday
+    const day = parseInt(signupBirthdayDay);
+    const month = parseInt(signupBirthdayMonth);
+    const year = parseInt(signupBirthdayYear);
+
+    if (day < 1 || day > 31 || month < 1 || month > 12 || year < 1900 || year > new Date().getFullYear()) {
+      setSignupError('Please enter a valid birthday');
+      return;
+    }
+
+    // Construct birthday in YYYY-MM-DD format
+    const birthdayString = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
     // Create new sibling account
     const newSibling = {
       id: Math.max(...siblings.map(s => s.id), 0) + 1,
@@ -186,7 +213,7 @@ const FelsonWealthApp = () => {
       age: age,
       email: signupEmail,
       password: signupPassword,
-      birthday: new Date().toISOString().split('T')[0], // Use today's date, will be updated by admin
+      birthday: birthdayString,
       tier: getTierForAge(age),
       totalSaved: 0,
       deposits: [],
@@ -207,6 +234,9 @@ const FelsonWealthApp = () => {
     setSignupEmail('');
     setSignupPassword('');
     setSignupAge('');
+    setSignupBirthdayDay('');
+    setSignupBirthdayMonth('');
+    setSignupBirthdayYear('');
     setShowSignup(false);
   };
 
@@ -233,6 +263,7 @@ const FelsonWealthApp = () => {
     setPassword('');
     setLoginError('');
     setShowSignup(false);
+    setEditingSiblingId(null);
   };
 
   const adminUser = {
@@ -330,6 +361,97 @@ const FelsonWealthApp = () => {
     }));
   };
 
+  const handleDeleteAccount = (siblingId, siblingName) => {
+    if (window.confirm(`Are you sure you want to DELETE the account for ${siblingName}? This cannot be undone.`)) {
+      setSiblings(siblings.filter(s => s.id !== siblingId));
+      alert(`Account for ${siblingName} has been deleted.`);
+    }
+  };
+
+  const handleEditAccount = (sibling) => {
+    const [year, month, day] = sibling.birthday.split('-');
+    setEditingSiblingId(sibling.id);
+    setEditName(sibling.name);
+    setEditEmail(sibling.email);
+    setEditAge(sibling.age.toString());
+    setEditBirthdayDay(day);
+    setEditBirthdayMonth(month);
+    setEditBirthdayYear(year);
+    setEditPassword('');
+    setEditError('');
+  };
+
+  const handleSaveEdit = () => {
+    setEditError('');
+
+    if (!editName || !editEmail || !editAge || !editBirthdayDay || !editBirthdayMonth || !editBirthdayYear) {
+      setEditError('All fields are required');
+      return;
+    }
+
+    // Check email format
+    if (!editEmail.endsWith('@felsonwealth.com')) {
+      setEditError('Email must be in format: firstname@felsonwealth.com');
+      return;
+    }
+
+    // Check if email already exists (excluding current sibling)
+    if (siblings.find(s => s.id !== editingSiblingId && s.email === editEmail)) {
+      setEditError('Email already registered');
+      return;
+    }
+
+    const age = parseInt(editAge);
+    if (age < 12 || age > 100) {
+      setEditError('Age must be between 12 and 100');
+      return;
+    }
+
+    const day = parseInt(editBirthdayDay);
+    const mon = parseInt(editBirthdayMonth);
+    const year = parseInt(editBirthdayYear);
+
+    if (day < 1 || day > 31 || mon < 1 || mon > 12 || year < 1900 || year > new Date().getFullYear()) {
+      setEditError('Please enter a valid birthday');
+      return;
+    }
+
+    const birthdayString = `${year}-${String(mon).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+    setSiblings(siblings.map(s => {
+      if (s.id === editingSiblingId) {
+        return {
+          ...s,
+          name: editName,
+          email: editEmail,
+          age: age,
+          birthday: birthdayString,
+          tier: getTierForAge(age),
+          password: editPassword ? editPassword : s.password,
+        };
+      }
+      return s;
+    }));
+
+    setEditingSiblingId(null);
+    alert('Account updated successfully!');
+  };
+
+  const handleResetPassword = (siblingId, siblingName) => {
+    const newPassword = prompt(`Enter new password for ${siblingName} (min 6 characters):`);
+    if (newPassword && newPassword.length >= 6) {
+      setSiblings(siblings.map(s => {
+        if (s.id === siblingId) {
+          return { ...s, password: newPassword };
+        }
+        return s;
+      }));
+      alert(`Password reset for ${siblingName}. New password: ${newPassword}`);
+    } else if (newPassword) {
+      alert('Password must be at least 6 characters');
+    }
+  };
+
   // ============ UI COMPONENTS ============
   if (!isLoggedIn) {
     return (
@@ -381,7 +503,7 @@ const FelsonWealthApp = () => {
               />
               <input
                 type="email"
-                placeholder="Email"
+                placeholder="Email (firstname@felsonwealth.com)"
                 value={signupEmail}
                 onChange={(e) => setSignupEmail(e.target.value)}
                 style={styles.input}
@@ -402,6 +524,36 @@ const FelsonWealthApp = () => {
                 max="100"
                 style={styles.input}
               />
+              <div style={{display: 'flex', gap: '8px'}}>
+                <input
+                  type="number"
+                  placeholder="Day"
+                  value={signupBirthdayDay}
+                  onChange={(e) => setSignupBirthdayDay(e.target.value)}
+                  min="1"
+                  max="31"
+                  style={{...styles.input, flex: 1}}
+                />
+                <input
+                  type="number"
+                  placeholder="Month"
+                  value={signupBirthdayMonth}
+                  onChange={(e) => setSignupBirthdayMonth(e.target.value)}
+                  min="1"
+                  max="12"
+                  style={{...styles.input, flex: 1}}
+                />
+                <input
+                  type="number"
+                  placeholder="Year"
+                  value={signupBirthdayYear}
+                  onChange={(e) => setSignupBirthdayYear(e.target.value)}
+                  min="1900"
+                  max={new Date().getFullYear()}
+                  style={{...styles.input, flex: 1}}
+                />
+              </div>
+              <div style={{fontSize: '11px', color: '#999', marginTop: '-8px'}}>Birthday (Day, Month, Year)</div>
               {signupError && <div style={styles.error}>{signupError}</div>}
               <button type="submit" style={styles.primaryButton}>
                 Create Account
@@ -414,6 +566,9 @@ const FelsonWealthApp = () => {
                   setSignupEmail('');
                   setSignupPassword('');
                   setSignupAge('');
+                  setSignupBirthdayDay('');
+                  setSignupBirthdayMonth('');
+                  setSignupBirthdayYear('');
                   setSignupError('');
                 }}
                 style={styles.secondaryButton}
@@ -526,12 +681,118 @@ const FelsonWealthApp = () => {
           {/* Siblings Overview */}
           {siblings.map((sibling) => {
             const tier = tiers[sibling.tier];
-            return (
+            return editingSiblingId === sibling.id ? (
+              // EDIT MODE
+              <div key={sibling.id} style={styles.editCard}>
+                <h3 style={styles.editTitle}>Edit Account - {sibling.name}</h3>
+                <input
+                  type="text"
+                  placeholder="Full Name"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  style={styles.input}
+                />
+                <input
+                  type="email"
+                  placeholder="Email"
+                  value={editEmail}
+                  onChange={(e) => setEditEmail(e.target.value)}
+                  style={styles.input}
+                />
+                <input
+                  type="number"
+                  placeholder="Age"
+                  value={editAge}
+                  onChange={(e) => setEditAge(e.target.value)}
+                  style={styles.input}
+                />
+                <div style={{display: 'flex', gap: '8px'}}>
+                  <input
+                    type="number"
+                    placeholder="Day"
+                    value={editBirthdayDay}
+                    onChange={(e) => setEditBirthdayDay(e.target.value)}
+                    min="1"
+                    max="31"
+                    style={{...styles.input, flex: 1}}
+                  />
+                  <input
+                    type="number"
+                    placeholder="Month"
+                    value={editBirthdayMonth}
+                    onChange={(e) => setEditBirthdayMonth(e.target.value)}
+                    min="1"
+                    max="12"
+                    style={{...styles.input, flex: 1}}
+                  />
+                  <input
+                    type="number"
+                    placeholder="Year"
+                    value={editBirthdayYear}
+                    onChange={(e) => setEditBirthdayYear(e.target.value)}
+                    min="1900"
+                    max={new Date().getFullYear()}
+                    style={{...styles.input, flex: 1}}
+                  />
+                </div>
+                <input
+                  type="password"
+                  placeholder="New Password (leave blank to keep current)"
+                  value={editPassword}
+                  onChange={(e) => setEditPassword(e.target.value)}
+                  style={styles.input}
+                />
+                {editError && <div style={styles.error}>{editError}</div>}
+                <div style={{display: 'flex', gap: '8px'}}>
+                  <button
+                    onClick={handleSaveEdit}
+                    style={{...styles.primaryButton, flex: 1}}
+                  >
+                    Save Changes
+                  </button>
+                  <button
+                    onClick={() => setEditingSiblingId(null)}
+                    style={{...styles.secondaryButton, flex: 1}}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              // VIEW MODE
               <div key={sibling.id} style={styles.siblingCard}>
                 <div style={styles.siblingHeader}>
-                  <h3 style={styles.siblingName}>{sibling.name}</h3>
-                  <div style={styles.siblingMeta}>
-                    Age {sibling.age} • {tier.name}
+                  <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%'}}>
+                    <div style={{flex: 1}}>
+                      <h3 style={styles.siblingName}>{sibling.name}</h3>
+                      <div style={styles.siblingMeta}>
+                        Age {sibling.age} • {tier.name}
+                      </div>
+                      <div style={{fontSize: '11px', color: '#666', marginTop: '4px'}}>{sibling.email}</div>
+                    </div>
+                    <div style={{display: 'flex', gap: '6px', flexDirection: 'column'}}>
+                      <button
+                        onClick={() => handleEditAccount(sibling)}
+                        style={styles.editButton}
+                        title="Edit account"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleResetPassword(sibling.id, sibling.name)}
+                        style={styles.resetButton}
+                        title="Reset password"
+                      >
+                        Reset Pass
+                      </button>
+                      <button
+                        onClick={() => handleDeleteAccount(sibling.id, sibling.name)}
+                        style={styles.deleteButton}
+                        title="Delete account"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -1035,6 +1296,18 @@ const styles = {
     borderRadius: '8px',
     boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
   },
+  editCard: {
+    background: '#f0f4ff',
+    padding: '20px',
+    borderRadius: '8px',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+  },
+  editTitle: {
+    fontSize: '16px',
+    fontWeight: '600',
+    color: '#001a4d',
+    marginBottom: '15px',
+  },
   siblingHeader: {
     marginBottom: '15px',
   },
@@ -1125,6 +1398,36 @@ const styles = {
     border: 'none',
     borderRadius: '4px',
     fontSize: '12px',
+    cursor: 'pointer',
+    fontWeight: '600',
+  },
+  editButton: {
+    padding: '6px 12px',
+    background: '#3498db',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '11px',
+    cursor: 'pointer',
+    fontWeight: '600',
+  },
+  resetButton: {
+    padding: '6px 12px',
+    background: '#f39c12',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '11px',
+    cursor: 'pointer',
+    fontWeight: '600',
+  },
+  deleteButton: {
+    padding: '6px 12px',
+    background: '#e74c3c',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '11px',
     cursor: 'pointer',
     fontWeight: '600',
   },
