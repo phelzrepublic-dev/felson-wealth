@@ -380,7 +380,7 @@ const FelsonWealthApp = () => {
                   <div key={sibling.id} style={styles.birthdayItem}>
                     <div style={styles.birthdayName}>{sibling.name}</div>
                     <div style={styles.birthdayDate}>
-                      {new Date(sibling.birthday).toLocaleDateString('en-US', {
+                      {new Date(sibling.birthday + 'T12:00:00').toLocaleDateString('en-US', {
                         month: 'short',
                         day: 'numeric',
                       })}
