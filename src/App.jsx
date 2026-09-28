@@ -1,31 +1,130 @@
 import React, { useState, useEffect } from 'react';
 import logoImage from './felson-wealth-logo-removebg-preview.png';
+import { supabase } from './supabaseClient';
+
+const memberGoalByEmail = {
+  'tombra@felsonwealth.com': 'Business Capital',
+  'sona@felsonwealth.com': 'Education',
+  'bovina@felsonwealth.com': 'Investment',
+  'henry@felsonwealth.com': 'Family Support',
+  'gift@felsonwealth.com': 'Savings',
+};
+
+const calculateAge = (dateOfBirth) => {
+  const today = new Date();
+  const birthday = new Date(`${dateOfBirth}T00:00:00`);
+  let age = today.getFullYear() - birthday.getFullYear();
+  const monthDifference = today.getMonth() - birthday.getMonth();
+
+  if (
+    monthDifference < 0
+    || (monthDifference === 0 && today.getDate() < birthday.getDate())
+  ) {
+    age -= 1;
+  }
+
+  return age;
+};
+
+const loadMemberFinancialData = async (profiles) => {
+  if (profiles.length === 0) return [];
+
+  const memberIds = profiles.map((profile) => profile.id);
+  const [depositsResult, adjustmentsResult, loansResult] = await Promise.all([
+    supabase
+      .from('deposits')
+      .select('id, member_id, amount, match_amount, deposit_date, affects_balance')
+      .in('member_id', memberIds)
+      .order('deposit_date', { ascending: true })
+      .order('created_at', { ascending: true }),
+    supabase
+      .from('balance_adjustments')
+      .select('id, member_id, amount, adjustment_type')
+      .in('member_id', memberIds),
+    supabase
+      .from('loans')
+      .select('id, member_id, amount, term_months, interest_rate_percent, monthly_payment, total_interest, status, request_date, approved_date, disbursed_date, paid_to_date')
+      .in('member_id', memberIds)
+      .order('request_date', { ascending: true }),
+  ]);
+
+  const queryError = depositsResult.error || adjustmentsResult.error || loansResult.error;
+  if (queryError) throw queryError;
+
+  return profiles.map((profile) => {
+    const deposits = depositsResult.data.filter(
+      (deposit) => deposit.member_id === profile.id,
+    );
+    const adjustments = adjustmentsResult.data.filter(
+      (adjustment) => adjustment.member_id === profile.id,
+    );
+    const loans = loansResult.data.filter((loan) => loan.member_id === profile.id);
+
+    const depositBalance = deposits
+      .filter((deposit) => deposit.affects_balance)
+      .reduce(
+        (total, deposit) => total + deposit.amount + deposit.match_amount,
+        0,
+      );
+    const adjustmentBalance = adjustments.reduce(
+      (total, adjustment) => total + (
+        adjustment.adjustment_type === 'debit'
+          ? -adjustment.amount
+          : adjustment.amount
+      ),
+      0,
+    );
+
+    return {
+      id: profile.id,
+      name: profile.name,
+      age: calculateAge(profile.date_of_birth),
+      email: profile.email,
+      birthday: profile.date_of_birth,
+      tier: profile.tier,
+      roleAssigned: profile.role_assigned,
+      totalSaved: depositBalance + adjustmentBalance,
+      deposits: deposits.map((deposit) => ({
+        id: deposit.id,
+        date: deposit.deposit_date,
+        amount: deposit.amount,
+        match: deposit.match_amount,
+        affectsBalance: deposit.affects_balance,
+      })),
+      loans: loans.map((loan) => ({
+        id: loan.id,
+        amount: loan.amount,
+        term: loan.term_months,
+        interestRate: loan.interest_rate_percent,
+        monthlyPayment: loan.monthly_payment,
+        totalInterest: loan.total_interest,
+        status: loan.status,
+        requestDate: loan.request_date,
+        approvedDate: loan.approved_date,
+        disbursedDate: loan.disbursed_date,
+        paidToDate: loan.paid_to_date,
+      })),
+      goal: memberGoalByEmail[profile.email.toLowerCase()] || 'Savings',
+    };
+  });
+};
 
 // Felson Wealth Management Portal - Full Stack
 const FelsonWealthApp = () => {
   // ============ STATE ============
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [userRole, setUserRole] = useState(null); // 'admin' or 'sibling'
+  const [userRole, setUserRole] = useState(null); // 'admin' or 'member'
   const [currentUser, setCurrentUser] = useState(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [mfaCode, setMfaCode] = useState('');
-  const [showMFA, setShowMFA] = useState(false);
-  const [showSignup, setShowSignup] = useState(false);
   const [loginError, setLoginError] = useState('');
+  const [authMessage, setAuthMessage] = useState('');
+  const [authLoading, setAuthLoading] = useState(true);
+  const [loginPending, setLoginPending] = useState(false);
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
 
-  // Signup form state
-  const [signupName, setSignupName] = useState('');
-  const [signupEmail, setSignupEmail] = useState('');
-  const [signupPassword, setSignupPassword] = useState('');
-  const [signupAge, setSignupAge] = useState('');
-  const [signupBirthdayDay, setSignupBirthdayDay] = useState('');
-  const [signupBirthdayMonth, setSignupBirthdayMonth] = useState('');
-  const [signupBirthdayYear, setSignupBirthdayYear] = useState('');
-  const [signupError, setSignupError] = useState('');
-
-  // Form state for sibling portal
-  const [depositAmount, setDepositAmount] = useState('');
+  // Form state for member portal
   const [loanAmount, setLoanAmount] = useState('');
   const [loanTerm, setLoanTerm] = useState(6);
 
@@ -37,86 +136,11 @@ const FelsonWealthApp = () => {
   const [editBirthdayDay, setEditBirthdayDay] = useState('');
   const [editBirthdayMonth, setEditBirthdayMonth] = useState('');
   const [editBirthdayYear, setEditBirthdayYear] = useState('');
-  const [editPassword, setEditPassword] = useState('');
   const [editError, setEditError] = useState('');
 
-  // Sibling data
-  const [siblings, setSiblings] = useState([
-    {
-      id: 1,
-      name: 'Tombra Prezi',
-      age: 23,
-      email: 'tombra@felsonwealth.com',
-      password: 'tombra123',
-      birthday: '2003-02-21',
-      tier: 2,
-      totalSaved: 78000,
-      deposits: [
-        { date: '2026-09-01', amount: 5000, match: 1500 },
-        { date: '2026-08-01', amount: 5000, match: 1500 },
-        { date: '2026-07-01', amount: 5000, match: 1500 },
-      ],
-      loans: [],
-      goal: 'Business Capital',
-      roleAssigned: null,
-    },
-    {
-      id: 2,
-      name: 'Sona Prezi',
-      age: 23,
-      email: 'sona@felsonwealth.com',
-      password: 'sona123',
-      birthday: '2003-04-01',
-      tier: 2,
-      totalSaved: 0,
-      deposits: [],
-      loans: [],
-      goal: 'Education',
-      roleAssigned: null,
-    },
-    {
-      id: 3,
-      name: 'Bovina Prezi',
-      age: 26,
-      email: 'bovina@felsonwealth.com',
-      password: 'bovina123',
-      birthday: '2000-07-09',
-      tier: 3,
-      totalSaved: 0,
-      deposits: [],
-      loans: [],
-      goal: 'Investment',
-      roleAssigned: 'FSS Field Technician',
-    },
-    {
-      id: 4,
-      name: 'Henry Prezi',
-      age: 30,
-      email: 'henry@felsonwealth.com',
-      password: 'henry123',
-      birthday: '1996-05-28',
-      tier: 3,
-      totalSaved: 0,
-      deposits: [],
-      loans: [],
-      goal: 'Family Support',
-      roleAssigned: null,
-    },
-    {
-      id: 5,
-      name: 'Gift Prezi',
-      age: 28,
-      email: 'gift@felsonwealth.com',
-      password: 'gift123',
-      birthday: '1998-09-19',
-      tier: 3,
-      totalSaved: 0,
-      deposits: [],
-      loans: [],
-      goal: 'Savings',
-      roleAssigned: null,
-    },
-  ]);
+  // Identity and financial records come from Supabase.
+  const [memberProfiles, setMemberProfiles] = useState([]);
+  const [siblings, setSiblings] = useState([]);
 
   // ============ TIER CONFIG ============
   const tiers = {
@@ -133,232 +157,316 @@ const FelsonWealthApp = () => {
     return 1;
   };
 
-  const calculateMatch = (amount, tier) => {
-    return Math.round(amount * (tiers[tier].matchPercent / 100));
+  // ============ AUTH ============
+  useEffect(() => {
+    let isMounted = true;
+
+    const clearAuthenticatedState = () => {
+      if (!isMounted) return;
+      setIsLoggedIn(false);
+      setUserRole(null);
+      setCurrentUser(null);
+      setMemberProfiles([]);
+      setSiblings([]);
+    };
+
+    const loadAuthenticatedProfile = async (session) => {
+      if (!session?.user) {
+        clearAuthenticatedState();
+        setAuthLoading(false);
+        return;
+      }
+
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('id, name, email, date_of_birth, tier, role, role_assigned')
+        .eq('id', session.user.id)
+        .maybeSingle();
+
+      if (!isMounted) return;
+
+      if (error || !profile) {
+        clearAuthenticatedState();
+        setLoginError(
+          error
+            ? 'Unable to load your authorized profile. Please try again.'
+            : 'This account does not have an authorized Felson Wealth profile.',
+        );
+        setAuthLoading(false);
+        await supabase.auth.signOut();
+        return;
+      }
+
+      let memberProfiles = [profile];
+
+      if (profile.role === 'admin') {
+        const { data, error: memberProfilesError } = await supabase
+          .from('profiles')
+          .select('id, name, email, date_of_birth, tier, role, role_assigned')
+          .eq('role', 'member')
+          .order('name');
+
+        if (!isMounted) return;
+
+        if (memberProfilesError) {
+          clearAuthenticatedState();
+          setLoginError('Unable to load family member profiles. Please try again.');
+          setAuthLoading(false);
+          await supabase.auth.signOut();
+          return;
+        }
+
+        memberProfiles = data;
+      }
+
+      let memberViews;
+
+      try {
+        memberViews = await loadMemberFinancialData(memberProfiles);
+      } catch {
+        if (!isMounted) return;
+        clearAuthenticatedState();
+        setLoginError('Unable to load financial records. Please try again.');
+        setAuthLoading(false);
+        await supabase.auth.signOut();
+        return;
+      }
+
+      if (!isMounted) return;
+
+      setCurrentUser({
+        ...profile,
+        birthday: profile.date_of_birth,
+        roleAssigned: profile.role_assigned,
+      });
+      setMemberProfiles(memberProfiles);
+      setSiblings(memberViews);
+      setUserRole(profile.role);
+      setIsLoggedIn(true);
+      setLoginError('');
+      setAuthLoading(false);
+    };
+
+    const initializeSession = async () => {
+      const { data, error } = await supabase.auth.getSession();
+
+      if (!isMounted) return;
+
+      if (error) {
+        clearAuthenticatedState();
+        setLoginError('Unable to restore your session. Please sign in again.');
+        setAuthLoading(false);
+        return;
+      }
+
+      await loadAuthenticatedProfile(data.session);
+    };
+
+    void initializeSession();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (event === 'PASSWORD_RECOVERY') {
+          clearAuthenticatedState();
+          setPasswordRecovery(true);
+          setLoginError('');
+          setAuthMessage('Choose a new password for your account.');
+          setAuthLoading(false);
+          return;
+        }
+
+        if (event === 'SIGNED_OUT') {
+          clearAuthenticatedState();
+          setAuthLoading(false);
+          return;
+        }
+
+        if (session) {
+          setTimeout(() => {
+            void loadAuthenticatedProfile(session);
+          }, 0);
+        }
+      },
+    );
+
+    return () => {
+      isMounted = false;
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoginError('');
+    setAuthMessage('');
+
+    if (!email.trim() || !password) {
+      setLoginError('Email and password are required');
+      return;
+    }
+
+    setLoginPending(true);
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
+    setLoginPending(false);
+
+    if (error) {
+      setLoginError('Invalid email or password');
+      return;
+    }
+
+    setEmail('');
+    setPassword('');
   };
 
-  // ============ AUTH ============
-  const handleLogin = (e) => {
+  const handleSendPasswordRecovery = async () => {
+    setLoginError('');
+    setAuthMessage('');
+
+    if (!email.trim()) {
+      setLoginError('Enter your email address first');
+      return;
+    }
+
+    setLoginPending(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: `${window.location.origin}${window.location.pathname}`,
+    });
+    setLoginPending(false);
+
+    if (error) {
+      setLoginError('Unable to send the password setup link. Please try again.');
+      return;
+    }
+
+    setAuthMessage('Check your email for a secure password setup link.');
+  };
+
+  const handleUpdatePassword = async (e) => {
     e.preventDefault();
     setLoginError('');
 
-    if (email === adminUser.email && password === adminUser.password) {
-      setShowMFA(true);
+    if (newPassword.length < 12) {
+      setLoginError('Use a password with at least 12 characters');
       return;
     }
 
-    const sibling = siblings.find(s => s.email === email && s.password === password);
-    if (sibling) {
-      setCurrentUser(sibling);
-      setUserRole('sibling');
-      setIsLoggedIn(true);
-      setEmail('');
-      setPassword('');
+    setLoginPending(true);
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+
+    if (error) {
+      setLoginPending(false);
+      setLoginError('Unable to update your password. Request a new setup link.');
       return;
     }
 
-    setLoginError('Invalid email or password');
+    await supabase.auth.signOut();
+    setNewPassword('');
+    setPasswordRecovery(false);
+    setLoginPending(false);
+    setAuthMessage('Password updated. You can now log in.');
   };
 
-  const handleSignup = (e) => {
-    e.preventDefault();
-    setSignupError('');
+  const handleLogout = async () => {
+    const { error } = await supabase.auth.signOut();
 
-    // Validation
-    if (!signupName || !signupEmail || !signupPassword || !signupAge || !signupBirthdayDay || !signupBirthdayMonth || !signupBirthdayYear) {
-      setSignupError('All fields are required');
+    if (error) {
+      alert('Unable to log out. Please try again.');
       return;
     }
 
-    // Check email format
-    if (!signupEmail.endsWith('@felsonwealth.com')) {
-      setSignupError('Email must be in format: firstname@felsonwealth.com');
-      return;
-    }
-
-    if (signupPassword.length < 6) {
-      setSignupError('Password must be at least 6 characters');
-      return;
-    }
-
-    // Check if email already exists
-    if (siblings.find(s => s.email === signupEmail)) {
-      setSignupError('Email already registered');
-      return;
-    }
-
-    const age = parseInt(signupAge);
-    if (age < 12 || age > 100) {
-      setSignupError('Age must be between 12 and 100');
-      return;
-    }
-
-    // Validate birthday
-    const day = parseInt(signupBirthdayDay);
-    const month = parseInt(signupBirthdayMonth);
-    const year = parseInt(signupBirthdayYear);
-
-    if (day < 1 || day > 31 || month < 1 || month > 12 || year < 1900 || year > new Date().getFullYear()) {
-      setSignupError('Please enter a valid birthday');
-      return;
-    }
-
-    // Construct birthday in YYYY-MM-DD format
-    const birthdayString = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-
-    // Create new sibling account
-    const newSibling = {
-      id: Math.max(...siblings.map(s => s.id), 0) + 1,
-      name: signupName,
-      age: age,
-      email: signupEmail,
-      password: signupPassword,
-      birthday: birthdayString,
-      tier: getTierForAge(age),
-      totalSaved: 0,
-      deposits: [],
-      loans: [],
-      goal: 'Savings',
-      roleAssigned: null,
-    };
-
-    setSiblings([...siblings, newSibling]);
-
-    // Auto-login new user
-    setCurrentUser(newSibling);
-    setUserRole('sibling');
-    setIsLoggedIn(true);
-
-    // Clear form
-    setSignupName('');
-    setSignupEmail('');
-    setSignupPassword('');
-    setSignupAge('');
-    setSignupBirthdayDay('');
-    setSignupBirthdayMonth('');
-    setSignupBirthdayYear('');
-    setShowSignup(false);
-  };
-
-  const handleMFASubmit = (e) => {
-    e.preventDefault();
-    if (mfaCode === '123456') {
-      setCurrentUser(adminUser);
-      setUserRole('admin');
-      setIsLoggedIn(true);
-      setMFACode('');
-      setShowMFA(false);
-      setEmail('');
-      setPassword('');
-    } else {
-      setLoginError('Invalid MFA code');
-    }
-  };
-
-  const handleLogout = () => {
     setIsLoggedIn(false);
     setUserRole(null);
     setCurrentUser(null);
+    setMemberProfiles([]);
+    setSiblings([]);
     setEmail('');
     setPassword('');
     setLoginError('');
-    setShowSignup(false);
     setEditingSiblingId(null);
   };
 
-  const adminUser = {
-    id: 'admin',
-    name: 'Felson Prezi',
-    email: 'Felsonprezi01@gmail.com',
-    password: 'Felson@2026!',
-    birthday: '1994-06-20',
+  // ============ DEPOSIT HANDLING ============
+  const refreshFinancialRecords = async () => {
+    try {
+      const memberViews = await loadMemberFinancialData(memberProfiles);
+      setSiblings(memberViews);
+      return true;
+    } catch {
+      alert('Unable to refresh financial records. Please reload and try again.');
+      return false;
+    }
   };
 
-  // ============ DEPOSIT HANDLING ============
-  const handleAddDeposit = (siblingId, amount) => {
+  const handleAddDeposit = async (siblingId, amount) => {
     const sibling = siblings.find(s => s.id === siblingId);
     if (!sibling || amount < tiers[sibling.tier].minSave) {
       alert(`Minimum deposit for this tier is ₦${tiers[sibling.tier].minSave}`);
-      return;
+      return false;
     }
 
-    const match = calculateMatch(amount, sibling.tier);
-    const newDeposit = {
-      date: new Date().toISOString().split('T')[0],
-      amount,
-      match,
-    };
+    if (userRole !== 'admin') {
+      alert('Only Management can record verified deposits.');
+      return false;
+    }
 
-    setSiblings(siblings.map(s => {
-      if (s.id === siblingId) {
-        return {
-          ...s,
-          totalSaved: s.totalSaved + amount + match,
-          deposits: [...s.deposits, newDeposit],
-        };
-      }
-      return s;
-    }));
+    const { error } = await supabase.from('deposits').insert({
+      member_id: siblingId,
+      amount,
+      deposit_date: new Date().toISOString().split('T')[0],
+    });
+
+    if (error) {
+      alert('Unable to record the deposit. No financial data was changed.');
+      return false;
+    }
+
+    return refreshFinancialRecords();
   };
 
   // ============ LOAN HANDLING ============
-  const handleRequestLoan = (siblingId, loanAmount, term) => {
+  const handleRequestLoan = async (siblingId, requestedAmount, term) => {
     const sibling = siblings.find(s => s.id === siblingId);
     if (!sibling || sibling.totalSaved < 100000) {
       alert('Minimum ₦100,000 saved required to request loan');
-      return;
+      return false;
     }
 
-    const interestRate = term === 6 ? 0 : 2;
-    const monthlyPayment = Math.round(loanAmount / term);
-    const totalInterest = Math.round((loanAmount * interestRate) / 100);
+    const { error } = await supabase.from('loans').insert({
+      member_id: siblingId,
+      amount: requestedAmount,
+      term_months: term,
+    });
 
-    const newLoan = {
-      id: Date.now(),
-      amount: loanAmount,
-      term,
-      interestRate,
-      monthlyPayment,
-      totalInterest,
-      status: 'pending',
-      requestDate: new Date().toISOString().split('T')[0],
-      approvedDate: null,
-      disbursedDate: null,
-      paidToDate: 0,
-    };
+    if (error) {
+      alert('Unable to submit the loan request. No financial data was changed.');
+      return false;
+    }
 
-    setSiblings(siblings.map(s => {
-      if (s.id === siblingId) {
-        return {
-          ...s,
-          loans: [...s.loans, newLoan],
-        };
-      }
-      return s;
-    }));
+    return refreshFinancialRecords();
   };
 
   // ============ ADMIN ACTIONS ============
-  const handleApproveLoan = (siblingId, loanId) => {
-    setSiblings(siblings.map(s => {
-      if (s.id === siblingId) {
-        return {
-          ...s,
-          loans: s.loans.map(l => {
-            if (l.id === loanId) {
-              return {
-                ...l,
-                status: 'approved',
-                approvedDate: new Date().toISOString().split('T')[0],
-                disbursedDate: new Date().toISOString().split('T')[0],
-              };
-            }
-            return l;
-          }),
-        };
-      }
-      return s;
-    }));
+  const handleApproveLoan = async (siblingId, loanId) => {
+    const approvalDate = new Date().toISOString().split('T')[0];
+    const { error } = await supabase
+      .from('loans')
+      .update({
+        status: 'approved',
+        approved_date: approvalDate,
+        disbursed_date: approvalDate,
+      })
+      .eq('id', loanId)
+      .eq('member_id', siblingId);
+
+    if (error) {
+      alert('Unable to approve the loan. No financial data was changed.');
+      return false;
+    }
+
+    return refreshFinancialRecords();
   };
 
   const handleDeleteAccount = (siblingId, siblingName) => {
@@ -377,7 +485,6 @@ const FelsonWealthApp = () => {
     setEditBirthdayDay(day);
     setEditBirthdayMonth(month);
     setEditBirthdayYear(year);
-    setEditPassword('');
     setEditError('');
   };
 
@@ -427,7 +534,6 @@ const FelsonWealthApp = () => {
           age: age,
           birthday: birthdayString,
           tier: getTierForAge(age),
-          password: editPassword ? editPassword : s.password,
         };
       }
       return s;
@@ -437,22 +543,52 @@ const FelsonWealthApp = () => {
     alert('Account updated successfully!');
   };
 
-  const handleResetPassword = (siblingId, siblingName) => {
-    const newPassword = prompt(`Enter new password for ${siblingName} (min 6 characters):`);
-    if (newPassword && newPassword.length >= 6) {
-      setSiblings(siblings.map(s => {
-        if (s.id === siblingId) {
-          return { ...s, password: newPassword };
-        }
-        return s;
-      }));
-      alert(`Password reset for ${siblingName}. New password: ${newPassword}`);
-    } else if (newPassword) {
-      alert('Password must be at least 6 characters');
-    }
-  };
-
   // ============ UI COMPONENTS ============
+  if (authLoading) {
+    return (
+      <div style={styles.container}>
+        <div style={styles.loginCard}>
+          <div style={styles.logo}>
+            <img src={logoImage} alt="Felson Wealth Management" style={{maxWidth: '300px', height: 'auto', display: 'block', margin: '0 auto'}} />
+          </div>
+          <h2 style={styles.formTitle}>Loading session...</h2>
+        </div>
+      </div>
+    );
+  }
+
+  if (passwordRecovery) {
+    return (
+      <div style={styles.container}>
+        <div style={styles.loginCard}>
+          <div style={styles.logo}>
+            <img src={logoImage} alt="Felson Wealth Management" style={{maxWidth: '300px', height: 'auto', display: 'block', margin: '0 auto'}} />
+          </div>
+          <form onSubmit={handleUpdatePassword} style={styles.form}>
+            <h2 style={styles.formTitle}>Choose New Password</h2>
+            <input
+              type="password"
+              placeholder="New password (12+ characters)"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              autoComplete="new-password"
+              style={styles.input}
+            />
+            {authMessage && <div style={styles.authMessage}>{authMessage}</div>}
+            {loginError && <div style={styles.error}>{loginError}</div>}
+            <button
+              type="submit"
+              disabled={loginPending}
+              style={styles.primaryButton}
+            >
+              {loginPending ? 'Updating...' : 'Set Password'}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   if (!isLoggedIn) {
     return (
       <div style={styles.container}>
@@ -461,154 +597,47 @@ const FelsonWealthApp = () => {
             <img src={logoImage} alt="Felson Wealth Management" style={{maxWidth: '300px', height: 'auto', display: 'block', margin: '0 auto'}} />
           </div>
 
-          {showMFA ? (
-            <form onSubmit={handleMFASubmit} style={styles.form}>
-              <h2 style={styles.formTitle}>Multi-Factor Authentication</h2>
-              <p style={styles.mfaInfo}>
-                Check your authenticator app for the 6-digit code (demo code: 123456)
+          <form onSubmit={handleLogin} style={styles.form}>
+            <h2 style={styles.formTitle}>Login</h2>
+            <input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+              style={styles.input}
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+              style={styles.input}
+            />
+            {authMessage && <div style={styles.authMessage}>{authMessage}</div>}
+            {loginError && <div style={styles.error}>{loginError}</div>}
+            <button
+              type="submit"
+              disabled={loginPending}
+              style={styles.primaryButton}
+            >
+              {loginPending ? 'Signing in...' : 'Login'}
+            </button>
+            <div style={styles.signupPrompt}>
+              <p style={styles.signupPromptText}>
+                Accounts are provisioned by Management.
               </p>
-              <input
-                type="text"
-                placeholder="000000"
-                value={mfaCode}
-                onChange={(e) => setMfaCode(e.target.value)}
-                maxLength="6"
-                style={styles.input}
-              />
-              {loginError && <div style={styles.error}>{loginError}</div>}
-              <button type="submit" style={styles.primaryButton}>
-                Verify Code
-              </button>
               <button
                 type="button"
-                onClick={() => {
-                  setShowMFA(false);
-                  setMFACode('');
-                  setLoginError('');
-                }}
-                style={styles.secondaryButton}
+                onClick={handleSendPasswordRecovery}
+                disabled={loginPending}
+                style={styles.signupLink}
               >
-                Back to Login
+                Set or reset password
               </button>
-            </form>
-          ) : showSignup ? (
-            <form onSubmit={handleSignup} style={styles.form}>
-              <h2 style={styles.formTitle}>Create Account</h2>
-              <input
-                type="text"
-                placeholder="Full Name"
-                value={signupName}
-                onChange={(e) => setSignupName(e.target.value)}
-                style={styles.input}
-              />
-              <input
-                type="email"
-                placeholder="Email (firstname@felsonwealth.com)"
-                value={signupEmail}
-                onChange={(e) => setSignupEmail(e.target.value)}
-                style={styles.input}
-              />
-              <input
-                type="password"
-                placeholder="Password (min 6 characters)"
-                value={signupPassword}
-                onChange={(e) => setSignupPassword(e.target.value)}
-                style={styles.input}
-              />
-              <input
-                type="number"
-                placeholder="Age"
-                value={signupAge}
-                onChange={(e) => setSignupAge(e.target.value)}
-                min="12"
-                max="100"
-                style={styles.input}
-              />
-              <div style={{display: 'flex', gap: '8px'}}>
-                <input
-                  type="number"
-                  placeholder="Day"
-                  value={signupBirthdayDay}
-                  onChange={(e) => setSignupBirthdayDay(e.target.value)}
-                  min="1"
-                  max="31"
-                  style={{...styles.input, flex: 1}}
-                />
-                <input
-                  type="number"
-                  placeholder="Month"
-                  value={signupBirthdayMonth}
-                  onChange={(e) => setSignupBirthdayMonth(e.target.value)}
-                  min="1"
-                  max="12"
-                  style={{...styles.input, flex: 1}}
-                />
-                <input
-                  type="number"
-                  placeholder="Year"
-                  value={signupBirthdayYear}
-                  onChange={(e) => setSignupBirthdayYear(e.target.value)}
-                  min="1900"
-                  max={new Date().getFullYear()}
-                  style={{...styles.input, flex: 1}}
-                />
-              </div>
-              <div style={{fontSize: '11px', color: '#999', marginTop: '-8px'}}>Birthday (Day, Month, Year)</div>
-              {signupError && <div style={styles.error}>{signupError}</div>}
-              <button type="submit" style={styles.primaryButton}>
-                Create Account
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowSignup(false);
-                  setSignupName('');
-                  setSignupEmail('');
-                  setSignupPassword('');
-                  setSignupAge('');
-                  setSignupBirthdayDay('');
-                  setSignupBirthdayMonth('');
-                  setSignupBirthdayYear('');
-                  setSignupError('');
-                }}
-                style={styles.secondaryButton}
-              >
-                Back to Login
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={handleLogin} style={styles.form}>
-              <h2 style={styles.formTitle}>Login</h2>
-              <input
-                type="email"
-                placeholder="Email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                style={styles.input}
-              />
-              <input
-                type="password"
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                style={styles.input}
-              />
-              {loginError && <div style={styles.error}>{loginError}</div>}
-              <button type="submit" style={styles.primaryButton}>
-                Login
-              </button>
-              <div style={styles.signupPrompt}>
-                <p style={styles.signupPromptText}>Don't have an account?</p>
-                <button
-                  type="button"
-                  onClick={() => setShowSignup(true)}
-                  style={styles.signupLink}
-                >
-                  Sign up here
-                </button>
-              </div>
-            </form>
-          )}
+            </div>
+          </form>
         </div>
       </div>
     );
@@ -735,13 +764,6 @@ const FelsonWealthApp = () => {
                     style={{...styles.input, flex: 1}}
                   />
                 </div>
-                <input
-                  type="password"
-                  placeholder="New Password (leave blank to keep current)"
-                  value={editPassword}
-                  onChange={(e) => setEditPassword(e.target.value)}
-                  style={styles.input}
-                />
                 {editError && <div style={styles.error}>{editError}</div>}
                 <div style={{display: 'flex', gap: '8px'}}>
                   <button
@@ -777,13 +799,6 @@ const FelsonWealthApp = () => {
                         title="Edit account"
                       >
                         Edit
-                      </button>
-                      <button
-                        onClick={() => handleResetPassword(sibling.id, sibling.name)}
-                        style={styles.resetButton}
-                        title="Reset password"
-                      >
-                        Reset Pass
                       </button>
                       <button
                         onClick={() => handleDeleteAccount(sibling.id, sibling.name)}
@@ -828,11 +843,13 @@ const FelsonWealthApp = () => {
                       style={styles.input}
                     />
                     <button
-                      onClick={() => {
+                      onClick={async () => {
                         const amount = parseInt(document.getElementById(`deposit-${sibling.id}`).value);
                         if (amount >= tier.minSave) {
-                          handleAddDeposit(sibling.id, amount);
-                          document.getElementById(`deposit-${sibling.id}`).value = '';
+                          const saved = await handleAddDeposit(sibling.id, amount);
+                          if (saved) {
+                            document.getElementById(`deposit-${sibling.id}`).value = '';
+                          }
                         }
                       }}
                       style={styles.adminDepositButton}
@@ -873,9 +890,35 @@ const FelsonWealthApp = () => {
     );
   }
 
-  // ============ SIBLING PORTAL ============
-  if (userRole === 'sibling' && currentUser) {
-    const sibling = siblings.find((s) => s.id === currentUser.id);
+  // ============ MEMBER PORTAL ============
+  if (userRole === 'member' && currentUser) {
+    const sibling = siblings.find(
+      (s) => s.email.toLowerCase() === currentUser.email.toLowerCase(),
+    );
+
+    if (!sibling) {
+      return (
+        <div style={styles.container}>
+          <div style={styles.header}>
+            <div style={styles.headerLeft}>
+              <div style={styles.headerLogo}>F</div>
+              <div>
+                <h1 style={styles.headerTitle}>Felson Wealth</h1>
+                <p style={styles.headerSubtitle}>{currentUser.name}</p>
+              </div>
+            </div>
+            <button onClick={handleLogout} style={styles.logoutButton}>
+              Logout
+            </button>
+          </div>
+          <div style={styles.dashboardCard}>
+            <h2 style={styles.cardTitle}>Member access is being prepared</h2>
+            <p>Your profile is active, but financial records are not connected yet.</p>
+          </div>
+        </div>
+      );
+    }
+
     const tier = tiers[sibling.tier];
     const loanEligible = sibling.totalSaved >= 100000;
 
@@ -914,42 +957,12 @@ const FelsonWealthApp = () => {
               </div>
             </div>
 
-            {/* Deposit Form */}
-            <div style={styles.formSection}>
-              <h3 style={styles.formSectionTitle}>Add Monthly Deposit</h3>
-              <input
-                type="number"
-                placeholder={`Min: ₦${tier.minSave}`}
-                value={depositAmount}
-                onChange={(e) => setDepositAmount(e.target.value)}
-                style={styles.input}
-              />
-              <div style={styles.matchPreview}>
-                {depositAmount
-                  ? `You save ₦${parseInt(depositAmount).toLocaleString()}, I add ₦${Math.round(
-                      parseInt(depositAmount) * (tier.matchPercent / 100)
-                    ).toLocaleString()}`
-                  : 'Enter amount to see match'}
-              </div>
-              <button
-                onClick={() => {
-                  if (depositAmount) {
-                    handleAddDeposit(sibling.id, parseInt(depositAmount));
-                    setDepositAmount('');
-                  }
-                }}
-                style={styles.primaryButton}
-              >
-                Record Deposit
-              </button>
-            </div>
-
             {/* Deposit History */}
             {sibling.deposits.length > 0 && (
               <div style={styles.historySection}>
                 <h3 style={styles.formSectionTitle}>Recent Deposits</h3>
-                {sibling.deposits.slice(-3).map((dep, idx) => (
-                  <div key={idx} style={styles.historyItem}>
+                {sibling.deposits.map((dep) => (
+                  <div key={dep.id} style={styles.historyItem}>
                     <div>
                       <div style={styles.historyDate}>{dep.date}</div>
                       <div style={styles.historyAmount}>₦{dep.amount.toLocaleString()}</div>
@@ -1022,10 +1035,14 @@ const FelsonWealthApp = () => {
                   </div>
                 )}
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     if (loanAmount) {
-                      handleRequestLoan(sibling.id, parseInt(loanAmount), loanTerm);
-                      setLoanAmount('');
+                      const submitted = await handleRequestLoan(
+                        sibling.id,
+                        parseInt(loanAmount),
+                        loanTerm,
+                      );
+                      if (submitted) setLoanAmount('');
                     }
                   }}
                   style={styles.primaryButton}
@@ -1156,6 +1173,13 @@ const styles = {
     fontSize: '13px',
     padding: '10px',
     background: '#ffebee',
+    borderRadius: '4px',
+  },
+  authMessage: {
+    color: '#176b3a',
+    fontSize: '13px',
+    padding: '10px',
+    background: '#eaf7ef',
     borderRadius: '4px',
   },
   mfaInfo: {
