@@ -300,25 +300,43 @@ const FelsonWealthApp = () => {
     setLoginError('');
     setAuthMessage('');
 
-    if (!email.trim() || !password) {
+    const formData = new FormData(e.currentTarget);
+    const submittedEmail = String(formData.get('email') || '').trim();
+    const submittedPassword = String(formData.get('password') || '');
+
+    if (!submittedEmail || !submittedPassword) {
       setLoginError('Email and password are required');
       return;
     }
 
     setLoginPending(true);
-    const { error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
-    setLoginPending(false);
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: submittedEmail,
+        password: submittedPassword,
+      });
 
-    if (error) {
-      setLoginError('Invalid email or password');
-      return;
+      if (error) {
+        setLoginError(
+          error.code === 'invalid_credentials'
+            ? 'Invalid email or password'
+            : 'Unable to sign in. Please try again.',
+        );
+        return;
+      }
+
+      if (!data.session) {
+        setLoginError('Sign-in succeeded, but no session was created. Please try again.');
+        return;
+      }
+
+      setEmail('');
+      setPassword('');
+    } catch {
+      setLoginError('Unable to reach the authentication service. Please try again.');
+    } finally {
+      setLoginPending(false);
     }
-
-    setEmail('');
-    setPassword('');
   };
 
   const handleSendPasswordRecovery = async () => {
@@ -601,6 +619,7 @@ const FelsonWealthApp = () => {
             <h2 style={styles.formTitle}>Login</h2>
             <input
               type="email"
+              name="email"
               placeholder="Email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -609,6 +628,7 @@ const FelsonWealthApp = () => {
             />
             <input
               type="password"
+              name="password"
               placeholder="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
