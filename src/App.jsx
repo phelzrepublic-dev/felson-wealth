@@ -249,16 +249,23 @@ const FelsonWealthApp = () => {
 
       let memberViews;
 
-      try {
-        memberViews = await loadMemberFinancialData(memberProfiles);
-      } catch {
-        if (!isMounted) return;
-        clearAuthenticatedState();
-        setLoginError('Unable to load financial records. Please try again.');
-        setAuthLoading(false);
-        await supabase.auth.signOut();
-        return;
-      }
+     try {
+  memberViews = await loadMemberFinancialData(memberProfiles);
+} catch (error) {
+  console.error('Felson financial load failed:', {
+    message: error?.message,
+    code: error?.code,
+    details: error?.details,
+    hint: error?.hint,
+  });
+
+  if (!isMounted) return;
+  clearAuthenticatedState();
+  setLoginError('Unable to load financial records. Please try again.');
+  setAuthLoading(false);
+  await supabase.auth.signOut();
+  return;
+}
 
       if (!isMounted) return;
 
