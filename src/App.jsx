@@ -10,32 +10,6 @@ const memberGoalByEmail = {
   'gift@felsonwealth.com': 'Savings',
 };
 
-const redactDiagnosticValue = (value, sensitiveValues) => {
-  if (value === null || value === undefined) return null;
-
-  let sanitized = String(value);
-
-  sensitiveValues
-    .filter(Boolean)
-    .forEach((sensitiveValue) => {
-      sanitized = sanitized.split(sensitiveValue).join('[redacted]');
-    });
-
-  return sanitized
-    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[redacted-email]')
-    .replace(/sb_(?:publishable|secret)_[A-Za-z0-9_-]+/g, '[redacted-key]')
-    .replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, '[redacted-token]')
-    .replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
-    .slice(0, 500);
-};
-
-const createLoginDiagnostic = (source, error, sensitiveValues) => ({
-  source,
-  name: redactDiagnosticValue(error?.name, sensitiveValues),
-  status: redactDiagnosticValue(error?.status, sensitiveValues),
-  code: redactDiagnosticValue(error?.code, sensitiveValues),
-  message: redactDiagnosticValue(error?.message, sensitiveValues),
-});
 
 const calculateAge = (dateOfBirth) => {
   const today = new Date();
@@ -145,7 +119,6 @@ const FelsonWealthApp = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
-  const [loginDiagnostic, setLoginDiagnostic] = useState(null);
   const [authMessage, setAuthMessage] = useState('');
   const [authLoading, setAuthLoading] = useState(true);
   const [loginPending, setLoginPending] = useState(false);
@@ -251,14 +224,7 @@ const FelsonWealthApp = () => {
 
      try {
   memberViews = await loadMemberFinancialData(memberProfiles);
-} catch (error) {
-  console.error('Felson financial load failed:', {
-    message: error?.message,
-    code: error?.code,
-    details: error?.details,
-    hint: error?.hint,
-  });
-
+} catch {
   if (!isMounted) return;
   clearAuthenticatedState();
   setLoginError('Unable to load financial records. Please try again.');
@@ -330,60 +296,54 @@ const FelsonWealthApp = () => {
     };
   }, []);
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setLoginError('');
-    setLoginDiagnostic(null);
-    setAuthMessage('');
+ const handleLogin = async (e) => {
+  e.preventDefault();
+  setLoginError('');
+  setAuthMessage('');
 
-    const formData = new FormData(e.currentTarget);
-    const submittedEmail = String(formData.get('email') || '').trim();
-    const submittedPassword = String(formData.get('password') || '');
+  const formData = new FormData(e.currentTarget);
+  const submittedEmail = String(formData.get('email') || '').trim();
+  const submittedPassword = String(formData.get('password') || '');
 
-    if (!submittedEmail || !submittedPassword) {
-      setLoginError('Email and password are required');
+  if (!submittedEmail || !submittedPassword) {
+    setLoginError('Email and password are required');
+    return;
+  }
+
+  setLoginPending(true);
+
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: submittedEmail,
+      password: submittedPassword,
+    });
+
+    if (error) {
+      setLoginError(
+        error.code === 'invalid_credentials'
+          ? 'Invalid email or password'
+          : 'Unable to sign in. Please try again.',
+      );
       return;
     }
 
-    setLoginPending(true);
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: submittedEmail,
-        password: submittedPassword,
-      });
-
-      if (error) {
-        setLoginDiagnostic(createLoginDiagnostic(
-          'signInWithPassword returned error',
-          error,
-          [submittedEmail, submittedPassword],
-        ));
-        setLoginError(
-          error.code === 'invalid_credentials'
-            ? 'Invalid email or password'
-            : 'Unable to sign in. Please try again.',
-        );
-        return;
-      }
-
-      if (!data.session) {
-        setLoginError('Sign-in succeeded, but no session was created. Please try again.');
-        return;
-      }
-
-      setEmail('');
-      setPassword('');
-    } catch (error) {
-      setLoginDiagnostic(createLoginDiagnostic(
-        'signInWithPassword threw exception',
-        error,
-        [submittedEmail, submittedPassword],
-      ));
-      setLoginError('Unable to reach the authentication service. Please try again.');
-    } finally {
-      setLoginPending(false);
+    if (!data.session) {
+      setLoginError(
+        'Sign-in succeeded, but no session was created. Please try again.',
+      );
+      return;
     }
-  };
+
+    setEmail('');
+    setPassword('');
+  } catch {
+    setLoginError(
+      'Unable to reach the authentication service. Please try again.',
+    );
+  } finally {
+    setLoginPending(false);
+  }
+};
 
   const handleSendPasswordRecovery = async () => {
     setLoginError('');
@@ -683,16 +643,7 @@ const FelsonWealthApp = () => {
             />
             {authMessage && <div style={styles.authMessage}>{authMessage}</div>}
             {loginError && <div style={styles.error}>{loginError}</div>}
-            {loginDiagnostic && (
-              <div style={styles.loginDiagnostic}>
-                <strong>Diagnostic:</strong>
-                <div>source: {loginDiagnostic.source}</div>
-                <div>name: {loginDiagnostic.name ?? 'null'}</div>
-                <div>status: {loginDiagnostic.status ?? 'null'}</div>
-                <div>code: {loginDiagnostic.code ?? 'null'}</div>
-                <div>message: {loginDiagnostic.message ?? 'null'}</div>
-              </div>
-            )}
+
             <button
               type="submit"
               disabled={loginPending}
@@ -1250,15 +1201,6 @@ const styles = {
     padding: '10px',
     background: '#ffebee',
     borderRadius: '4px',
-  },
-  loginDiagnostic: {
-    color: '#5a3e00',
-    fontSize: '12px',
-    lineHeight: '1.5',
-    padding: '10px',
-    background: '#fff8e1',
-    borderRadius: '4px',
-    overflowWrap: 'anywhere',
   },
   authMessage: {
     color: '#176b3a',
